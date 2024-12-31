@@ -1,6 +1,6 @@
 # Define the path for src/dashboard.py
 dashboard_file_path = "/mnt/data/TradingBot/src/dashboard.py"
-
+pip install pandas numpy matplotlib streamlit
 # Updated dashboard code with live data integration and trade analytics
 dashboard_code = """
 import streamlit as st
