@@ -1,1 +1,38 @@
+# Define the file path for config.json
+config_file_path = "/mnt/data/TradingBot/config/config.json"
+
+# Configuration file content
+config_content = {
+    "API_KEY": "PKW2LOE9C15MOTYA7AV0",  # Replace with your Alpaca API Key
+    "SECRET_KEY": "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj",  # Replace with your Alpaca Secret Key
+    "BASE_URL": "https://paper-api.alpaca.markets",  # Alpaca base URL for paper trading
+    "TRADE_SETTINGS": {
+        "stop_loss_trailing_factor": 0.02,  # Trailing stop loss percentage
+        "trade_allocation": 0.7,  # Percentage of portfolio allocated to trades
+        "max_trade_allocation": 0.02,  # Max allocation per trade as a percentage of portfolio
+        "sentiment_threshold": 0.1  # Confidence threshold for executing trades
+    },
+    "MARKET_HOURS": {
+        "MARKET_OPEN": "09:30",  # Eastern Time
+        "MARKET_CLOSE": "16:00",  # Eastern Time
+        "PRE_MARKET_OPEN": "04:00",  # Eastern Time
+        "AFTER_MARKET_CLOSE": "20:00"  # Eastern Time
+    },
+    "PORTFOLIO": {
+        "initial_balance": 100000,  # Starting portfolio balance
+        "commission_cost": 0.005  # Cost per trade
+    }
+}
+
+# Write the configuration content to config.json
+import json
+
+# Ensure the config directory exists
+os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
+
+# Write the configuration to the file
+with open(config_file_path, "w") as file:
+    json.dump(config_content, file, indent=4)
+
+config_file_path
 
