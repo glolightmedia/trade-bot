@@ -19,8 +19,8 @@ logging.basicConfig(level=logging.INFO, filename="../logs/bot_log.txt", filemode
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Alpaca API Configuration
-API_KEY = "Your_Alpaca_API_Key"
-SECRET_KEY = "Your_Alpaca_Secret_Key"
+API_KEY = "PKW2LOE9C15MOTYA7AV0"
+SECRET_KEY = "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj"
 BASE_URL = "https://paper-api.alpaca.markets"
 
 # Initialize Tools
