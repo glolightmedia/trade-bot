@@ -1,11 +1,3 @@
-# Re-saving the updated main.py to ensure it is correctly saved and accessible
-
-file_path_final = "/mnt/data/main_updated_final.py"
-
-enhanced_main_py_content = """
-# Optimized main.py with enhanced profitability logic
-# Includes dynamic allocation, improved filtering, and trailing stop-loss
-
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
@@ -210,10 +202,3 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
-"""
-
-# Write to the file
-with open(file_path_final, "w") as file:
-    file.write(enhanced_main_py_content)
-
-file_path_final
