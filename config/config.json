@@ -1,21 +1,21 @@
 {
-    "API_KEY": "PKW2LOE9C15MOTYA7AV0",  // Replace with your Alpaca API Key
-    "SECRET_KEY": "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj",  // Replace with your Alpaca Secret Key
-    "BASE_URL": "https://paper-api.alpaca.markets",  // Correct Alpaca base URL for paper trading
+    "API_KEY": "PKW2LOE9C15MOTYA7AV0",
+    "SECRET_KEY": "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj",
+    "BASE_URL": "https://paper-api.alpaca.markets",
     "TRADE_SETTINGS": {
-        "stop_loss_trailing_factor": 0.02,  // Trailing stop loss percentage
-        "trade_allocation": 0.7,  // Percentage of portfolio allocated to trades
-        "max_trade_allocation": 0.02,  // Max allocation per trade as a percentage of portfolio
-        "sentiment_threshold": 0.1  // Confidence threshold for executing trades
+        "stop_loss_trailing_factor": 0.02,
+        "trade_allocation": 0.7,
+        "max_trade_allocation": 0.02,
+        "sentiment_threshold": 0.1
     },
     "MARKET_HOURS": {
-        "MARKET_OPEN": "09:30",  // Eastern Time
-        "MARKET_CLOSE": "16:00",  // Eastern Time
-        "PRE_MARKET_OPEN": "04:00",  // Eastern Time
-        "AFTER_MARKET_CLOSE": "20:00"  // Eastern Time
+        "MARKET_OPEN": "09:30",
+        "MARKET_CLOSE": "16:00",
+        "PRE_MARKET_OPEN": "04:00",
+        "AFTER_MARKET_CLOSE": "20:00"
     },
     "PORTFOLIO": {
-        "initial_balance": 100000,  // Starting portfolio balance
-        "commission_cost": 0.005  // Cost per trade
+        "initial_balance": 100000,
+        "commission_cost": 0.005
     }
 }
