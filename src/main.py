@@ -6,7 +6,7 @@ from alpaca_trade_api import REST
 import pandas as pd
 import pytz
 from textblob import TextBlob
-import praw
+import numpy as np
 
 # Load configuration
 with open("config/config.json") as f:
@@ -17,17 +17,9 @@ SECRET_KEY = config["SECRET_KEY"]
 BASE_URL = config["BASE_URL"]
 TRADE_SETTINGS = config["TRADE_SETTINGS"]
 MARKET_HOURS = config["MARKET_HOURS"]
-REDDIT_CONFIG = config["SENTIMENT_API"]
 
 # Initialize Alpaca API
-api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version=config.get("API_VERSION", "v2"))
-
-# Initialize Reddit API
-reddit = praw.Reddit(
-    client_id=REDDIT_CONFIG["REDDIT_CLIENT_ID"],
-    client_secret=REDDIT_CONFIG["REDDIT_CLIENT_SECRET"],
-    user_agent=REDDIT_CONFIG["REDDIT_USER_AGENT"]
-)
+api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version="v2")
 
 def is_market_open():
     now = datetime.now(pytz.timezone("US/Eastern")).time()
@@ -38,35 +30,22 @@ def is_market_open():
 def get_penny_stocks(api):
     try:
         assets = api.list_assets(status="active")
-        penny_stocks = [
+        return [
             asset.symbol for asset in assets
             if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
             and 0.5 <= asset.last_price <= 5
             and asset.volume >= 1_000_000
             and abs(asset.change_percent) > 3
         ]
-        return penny_stocks
     except Exception as e:
         logging.error(f"Error fetching penny stocks: {e}")
         return []
 
-def fetch_reddit_sentiment(symbol):
-    try:
-        subreddit = reddit.subreddit("stocks")
-        posts = subreddit.search(symbol, limit=50)
-        sentiment_score = 0
-        count = 0
-        for post in posts:
-            sentiment = TextBlob(post.title + " " + post.selftext).sentiment.polarity
-            sentiment_score += sentiment
-            count += 1
-        return sentiment_score / count if count > 0 else 0
-    except Exception as e:
-        logging.warning(f"Error fetching Reddit sentiment for {symbol}: {e}")
-        return 0
-
 def calculate_indicators(data):
     data["SMA_5"] = data["c"].rolling(window=5).mean()
+    data["EMA_12"] = data["c"].ewm(span=12, adjust=False).mean()
+    data["EMA_26"] = data["c"].ewm(span=26, adjust=False).mean()
+    data["MACD"] = data["EMA_12"] - data["EMA_26"]
     data["RSI"] = 100 - 100 / (1 + data["c"].diff().clip(lower=0).rolling(14).mean() /
                                data["c"].diff().clip(upper=0).abs().rolling(14).mean())
     data["VWAP"] = (data["v"] * data["c"]).cumsum() / data["v"].cumsum()
@@ -78,20 +57,32 @@ def compute_confidence_score(api, symbol):
         bars = api.get_bars(symbol, "1Day", limit=30).df
         indicators = calculate_indicators(bars)
         volume_factor = bars.iloc[-1]["v"] / bars["v"].mean()
+        macd_signal = indicators.iloc[-1]["MACD"]
         vwap = indicators["VWAP"].iloc[-1]
         price = bars["c"].iloc[-1]
-        reddit_sentiment = fetch_reddit_sentiment(symbol)
+        sentiment = fetch_sentiment(symbol)
         confidence_score = (
-            0.25 * reddit_sentiment +
+            0.25 * sentiment +
             0.25 * (indicators.iloc[-1]["RSI"] / 100) +
-            0.25 * volume_factor +
-            0.15 * (price > vwap) +
-            0.1 * indicators.iloc[-1]["ATR"]
+            0.2 * volume_factor +
+            0.2 * (price > vwap) +
+            0.1 * (macd_signal > 0)
         )
         return confidence_score
     except Exception as e:
         logging.warning(f"Error computing confidence score for {symbol}: {e}")
         return 0
+
+def fetch_sentiment(symbol):
+    # Integrate sentiment APIs (e.g., Twitter, Reddit, News API)
+    return 0.5
+
+def calculate_stop_loss(entry_price, atr):
+    return entry_price - (1.5 * atr)
+
+def detect_volume_spike(data):
+    rvol = data["v"].iloc[-1] / data["v"].mean()
+    return rvol > 1.5
 
 def place_trade(symbol, shares, price):
     try:
@@ -133,15 +124,16 @@ def run_bot():
 def run_after_hours_strategy():
     penny_stocks = get_penny_stocks(api)
     for symbol in penny_stocks:
-        sentiment_score = fetch_reddit_sentiment(symbol)
-        if sentiment_score > 0.7:
-            bars = api.get_bars(symbol, "1Min", limit=30).df
-            price = bars["c"].iloc[-1]
-            vwap = bars["VWAP"].iloc[-1]
-            if price < vwap:
-                allocation = config["TRADE_SETTINGS"]["AFTER_HOURS_ALLOCATION"]
-                qty = int(allocation / price)
-                place_trade(symbol, qty)
+        bars = api.get_bars(symbol, "1Min", limit=30).df
+        if bars.empty:
+            continue
+
+        price = bars["c"].iloc[-1]
+        vwap = bars["VWAP"].iloc[-1]
+        if price < vwap and detect_volume_spike(bars):
+            allocation = config["TRADE_SETTINGS"]["AFTER_HOURS_ALLOCATION"]
+            qty = int(allocation / price)
+            place_trade(symbol, qty)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
