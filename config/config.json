@@ -5,7 +5,7 @@ config_file_path = "/mnt/data/TradingBot/config/config.json"
 config_content = {
     "API_KEY": "PKW2LOE9C15MOTYA7AV0",  # Replace with your Alpaca API Key
     "SECRET_KEY": "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj",  # Replace with your Alpaca Secret Key
-    "BASE_URL": "https://paper-api.alpaca.markets",  # Alpaca base URL for paper trading
+    "BASE_URL": "https://paper-api.alpaca.markets/v2",  # Alpaca base URL for paper trading
     "TRADE_SETTINGS": {
         "stop_loss_trailing_factor": 0.02,  # Trailing stop loss percentage
         "trade_allocation": 0.7,  # Percentage of portfolio allocated to trades
