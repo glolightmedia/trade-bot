@@ -1,7 +1,11 @@
-# Save the updated main.py content to a downloadable file
-file_path = "/mnt/data/main_updated.py"
+# Re-saving the updated main.py to ensure it is correctly saved and accessible
 
-updated_main_py_content = """
+file_path_final = "/mnt/data/main_updated_final.py"
+
+enhanced_main_py_content = """
+# Optimized main.py with enhanced profitability logic
+# Includes dynamic allocation, improved filtering, and trailing stop-loss
+
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
@@ -135,6 +139,24 @@ def place_trade(symbol, shares, price):
     except Exception as e:
         logging.error(f"Error placing trade for {symbol}: {e}")
 
+def sell_unprofitable_positions():
+    """Sell all active positions that are no longer profitable."""
+    try:
+        positions = api.list_positions()
+        for pos in positions:
+            unrealized_pl = float(pos.unrealized_pl)
+            if unrealized_pl < 0:  # Sell if not profitable
+                api.submit_order(
+                    symbol=pos.symbol,
+                    qty=pos.qty,
+                    side="sell",
+                    type="market",
+                    time_in_force="day"
+                )
+                logging.info(f"Sold unprofitable position: {pos.symbol} with P/L: ${unrealized_pl}")
+    except Exception as e:
+        logging.error(f"Error selling unprofitable positions: {e}")
+
 def maximize_peak_hours_profitability(api):
     """Maximize trades during peak trading hours."""
     try:
@@ -154,6 +176,8 @@ def maximize_peak_hours_profitability(api):
 def run_bot():
     """Run the trading bot."""
     try:
+        sell_unprofitable_positions()  # Clear unprofitable positions
+
         current_settings = get_current_settings()
         penny_stocks = get_penny_stocks(api)
         high_confidence_stocks = []
@@ -189,7 +213,7 @@ if __name__ == "__main__":
 """
 
 # Write to the file
-with open(file_path, "w") as file:
-    file.write(updated_main_py_content)
+with open(file_path_final, "w") as file:
+    file.write(enhanced_main_py_content)
 
-file_path
+file_path_final
