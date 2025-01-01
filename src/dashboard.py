@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -30,7 +31,8 @@ def fetch_active_trades():
                 "Shares": int(pos.qty),
                 "Entry Price": float(pos.avg_entry_price),
                 "Current Price": float(pos.current_price),
-                "Profit/Loss": float(pos.unrealized_pl)
+                "Profit/Loss": float(pos.unrealized_pl),
+                "Stop Loss": calculate_stop_loss(float(pos.avg_entry_price), float(pos.current_price) * 0.02)
             }
             for pos in positions
         ]
@@ -38,46 +40,48 @@ def fetch_active_trades():
         st.error(f"Error fetching active trades: {e}")
         return []
 
+# Calculate Stop Loss
+def calculate_stop_loss(entry_price, atr):
+    return entry_price - (1.5 * atr)
+
+# Fetch High-Confidence Stocks
 def fetch_high_confidence_stocks():
     try:
         assets = api.list_assets(status="active")
-        penny_stocks = [
-            asset.symbol for asset in assets
-            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
-        ]
-        
         high_confidence = []
-        for symbol in penny_stocks:
-            try:
-                # Fetch the last trade price
-                last_trade = api.get_last_trade(symbol)
-                price = last_trade.price
-                if 0.5 <= price <= 5:  # Filter for penny stocks
-                    confidence_score = np.random.uniform(70, 100)  # Simulated confidence score
-                    high_confidence.append({"Symbol": symbol, "Confidence Score (%)": confidence_score, "Current Price": price})
-            except Exception as e:
-                continue  # Skip stocks with issues
-        
+        for asset in assets:
+            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]:
+                try:
+                    last_trade = api.get_last_trade(asset.symbol)
+                    price = last_trade.price
+                    if 0.5 <= price <= 5:  # Penny stock filter
+                        confidence_score = compute_confidence_score(asset.symbol)
+                        high_confidence.append({
+                            "Symbol": asset.symbol,
+                            "Confidence Score (%)": confidence_score,
+                            "Current Price": price
+                        })
+                except Exception:
+                    continue
         return sorted(high_confidence, key=lambda x: x["Confidence Score (%)"], reverse=True)[:5]
     except Exception as e:
         st.error(f"Error fetching high-confidence stocks: {e}")
         return []
-def fetch_recommended_buys():
+
+# Compute Confidence Score
+def compute_confidence_score(symbol):
     try:
-        high_confidence_stocks = fetch_high_confidence_stocks()
-        recommended = []
-        for stock in high_confidence_stocks:
-            if stock["Confidence Score (%)"] >= 85:  # Recommended threshold
-                predicted_growth = stock["Current Price"] * 1.15  # Simulated 15% growth
-                recommended.append({
-                    "Symbol": stock["Symbol"],
-                    "Current Price": stock["Current Price"],
-                    "Predicted Growth": predicted_growth
-                })
-        return recommended
+        bars = api.get_bars(symbol, "1Day", limit=30).df
+        if bars.empty:
+            return 0
+        vwap = (bars["c"] * bars["v"]).cumsum() / bars["v"].cumsum()
+        rsi = 100 - (100 / (1 + (bars["c"].diff().clip(lower=0).rolling(14).mean() /
+                                bars["c"].diff().clip(upper=0).abs().rolling(14).mean())))
+        sentiment_score = 0.5  # Placeholder for sentiment API integration
+        return (0.4 * sentiment_score + 0.3 * (rsi.iloc[-1] / 100) + 0.3 * (bars.iloc[-1]["c"] > vwap.iloc[-1]))
     except Exception as e:
-        st.error(f"Error fetching recommended buys: {e}")
-        return []
+        st.error(f"Error computing confidence score for {symbol}: {e}")
+        return 0
 
 # Fetch Most Recent Trades
 def fetch_most_recent_trades():
@@ -141,22 +145,8 @@ st.table(pd.DataFrame(recent_trades))
 
 # High-Confidence Stocks
 st.header("🚀 High-Confidence Stock Opportunities")
-st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 high_confidence_stocks = fetch_high_confidence_stocks()
 st.table(pd.DataFrame(high_confidence_stocks))
-
-# Recommended Buys
-st.header("💡 Recommended Buys")
-st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-recommended_buys = [
-    {
-        "Symbol": stock["Symbol"],
-        "Current Price": stock["Current Price"],
-        "Confidence Score (%)": stock["Confidence Score (%)"]
-    }
-    for stock in high_confidence_stocks if stock["Confidence Score (%)"] > 80
-]
-st.table(pd.DataFrame(recommended_buys))
 
 # Profit/Loss Analytics
 st.header("📈 Profit/Loss Analytics")
@@ -175,5 +165,3 @@ profit_trend = pd.DataFrame({
     "Profit": [100, 200, 150, 300]
 })
 st.line_chart(profit_trend.set_index("Time"))
-
-
