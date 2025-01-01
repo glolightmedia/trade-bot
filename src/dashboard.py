@@ -1,13 +1,7 @@
-# Define the path for src/dashboard.py
-dashboard_file_path = "/mnt/data/TradingBot/src/dashboard.py"
-pip install pandas numpy matplotlib streamlit
-# Updated dashboard code with live data integration and trade analytics
-dashboard_code = """
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import time
 
 # Placeholder for integration with the trading bot's logic
 # Replace these with live data from your trading bot
@@ -27,7 +21,7 @@ profit_trend = pd.DataFrame({
 
 # Function to simulate fetching live data (Replace with real API calls)
 def fetch_live_data():
-    # Simulated active trades
+    global active_trades, trade_logs
     active_trades.append({
         "Symbol": "GOOG",
         "Shares": 10,
@@ -35,7 +29,6 @@ def fetch_live_data():
         "Current Price": 2750,
         "Profit/Loss": 500
     })
-    # Simulate adding new logs
     trade_logs.append({
         "Time": "11:30 AM",
         "Action": "BUY",
@@ -51,7 +44,7 @@ st.title("Penny Stock Trading Bot Dashboard")
 st.header("Portfolio Overview")
 st.metric("Portfolio Balance", f"${portfolio_balance:,.2f}")
 st.subheader("Active Trades")
-st.table(pd.DataFrame(active_trades))
+st.dataframe(pd.DataFrame(active_trades))
 
 # Profit & Loss Section
 st.header("Profit & Loss")
@@ -60,17 +53,19 @@ st.line_chart(profit_trend.set_index("Time"))
 
 # Trade Analytics
 st.header("Trade Analytics")
-# Basic statistics for the profit/loss data
-st.subheader("Profit/Loss Statistics")
 profits = [trade["Profit/Loss"] for trade in active_trades]
-st.write(f"Total Profit: ${sum(profits):,.2f}")
-st.write(f"Average Profit per Trade: ${np.mean(profits):,.2f}")
-st.write(f"Maximum Profit: ${max(profits):,.2f}")
-st.write(f"Minimum Profit: ${min(profits):,.2f}")
+if profits:
+    st.subheader("Profit/Loss Statistics")
+    st.write(f"Total Profit: ${sum(profits):,.2f}")
+    st.write(f"Average Profit per Trade: ${np.mean(profits):,.2f}")
+    st.write(f"Maximum Profit: ${max(profits):,.2f}")
+    st.write(f"Minimum Profit: ${min(profits):,.2f}")
+else:
+    st.write("No profits available to analyze.")
 
 # Trade Execution Logs
 st.header("Trade Execution Logs")
-st.table(pd.DataFrame(trade_logs))
+st.dataframe(pd.DataFrame(trade_logs))
 
 # Controls
 st.header("Trade Settings")
@@ -87,11 +82,3 @@ st.success("High-confidence stock opportunity: AAPL")
 if st.button("Refresh Data"):
     fetch_live_data()
     st.experimental_rerun()
-"""
-
-# Write the updated dashboard logic to src/dashboard.py
-with open(dashboard_file_path, "w") as file:
-    file.write(dashboard_code)
-
-dashboard_file_path
-
