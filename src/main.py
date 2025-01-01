@@ -1,3 +1,4 @@
+
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
@@ -16,109 +17,66 @@ TRADE_SETTINGS = config["TRADE_SETTINGS"]
 MARKET_HOURS = config["MARKET_HOURS"]
 
 # Initialize Alpaca API
-try:
-    api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version=config.get("API_VERSION", "v2"))
-    logging.info("Connected to Alpaca API successfully.")
-except Exception as e:
-    logging.error(f"Failed to connect to Alpaca API: {e}")
-    raise
+api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version=config.get("API_VERSION", "v2"))
 
-# Determine if the market is open or closed
 def is_market_open():
     now = datetime.now(pytz.timezone("US/Eastern")).time()
     market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
     market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
-    pre_market_open_time = dt_time.fromisoformat(MARKET_HOURS["PRE_MARKET_OPEN"])
-    after_market_close_time = dt_time.fromisoformat(MARKET_HOURS["AFTER_MARKET_CLOSE"])
+    return market_open_time <= now < market_close_time
 
-    if pre_market_open_time <= now < market_open_time or market_close_time <= now < after_market_close_time:
-        return False  # Pre-market or after-hours
-    else:
-        return True  # Regular market hours
-
-# Get current settings based on market hours
-def get_current_settings():
-    if is_market_open():
-        return TRADE_SETTINGS["market_open"]
-    else:
-        return TRADE_SETTINGS["market_closed"]
-
-# Define Trading Functions
 def get_penny_stocks(api):
-    """Fetch all tradable penny stocks."""
     try:
         assets = api.list_assets(status="active")
-        return [
+        penny_stocks = [
             asset.symbol for asset in assets
-            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"] and 0.5 <= asset.last_price <= 5
+            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
+            and 0.5 <= asset.last_price <= 5
+            and asset.volume >= 1_000_000
+            and abs(asset.change_percent) > 3
         ]
+        return penny_stocks
     except Exception as e:
         logging.error(f"Error fetching penny stocks: {e}")
         return []
 
-def fetch_sentiment(symbol):
-    """Simulate sentiment analysis for a stock."""
-    try:
-        # Replace with a real sentiment API integration
-        return 0.5  # Placeholder sentiment score
-    except Exception as e:
-        logging.warning(f"Error fetching sentiment for {symbol}: {e}")
-        return 0
-
 def calculate_indicators(data):
-    """Calculate SMA, RSI, MACD, and Bollinger Bands."""
-    # SMA calculations
     data["SMA_5"] = data["c"].rolling(window=5).mean()
-    data["SMA_15"] = data["c"].rolling(window=15).mean()
-
-    # RSI calculation
-    delta = data["c"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    data["RSI"] = 100 - (100 / (1 + rs))
-
-    # MACD calculation
-    data["EMA_12"] = data["c"].ewm(span=12, adjust=False).mean()
-    data["EMA_26"] = data["c"].ewm(span=26, adjust=False).mean()
-    data["MACD"] = data["EMA_12"] - data["EMA_26"]
-
-    # Bollinger Bands
-    rolling_mean = data["c"].rolling(window=20).mean()
-    rolling_std = data["c"].rolling(window=20).std()
-    data["Bollinger_Upper"] = rolling_mean + (2 * rolling_std)
-    data["Bollinger_Lower"] = rolling_mean - (2 * rolling_std)
-
+    data["RSI"] = 100 - 100 / (1 + data["c"].diff().clip(lower=0).rolling(14).mean() /
+                               data["c"].diff().clip(upper=0).abs().rolling(14).mean())
+    data["VWAP"] = (data["v"] * data["c"]).cumsum() / data["v"].cumsum()
+    data["ATR"] = data["h"].rolling(window=14).max() - data["l"].rolling(window=14).min()
     return data
 
 def compute_confidence_score(api, symbol):
-    """Compute a refined confidence score for a stock based on sentiment, technicals, and volume."""
     try:
         bars = api.get_bars(symbol, "1Day", limit=30).df
         indicators = calculate_indicators(bars)
         volume_factor = bars.iloc[-1]["v"] / bars["v"].mean()
-        macd_signal = indicators.iloc[-1]["MACD"]
-        bollinger_score = (
-            (bars["c"].iloc[-1] - indicators["Bollinger_Lower"].iloc[-1]) /
-            (indicators["Bollinger_Upper"].iloc[-1] - indicators["Bollinger_Lower"].iloc[-1])
-        )
+        macd_signal = indicators.iloc[-1]["RSI"]
+        vwap = indicators["VWAP"].iloc[-1]
+        price = bars["c"].iloc[-1]
         sentiment = fetch_sentiment(symbol)
-
-        # Weighted scoring formula
         confidence_score = (
-            0.3 * sentiment +
-            0.2 * (indicators.iloc[-1]["RSI"] / 100) +
-            0.2 * volume_factor +
-            0.2 * (macd_signal / abs(macd_signal).max()) +
-            0.1 * bollinger_score
+            0.25 * sentiment +
+            0.25 * (indicators.iloc[-1]["RSI"] / 100) +
+            0.25 * volume_factor +
+            0.15 * (price > vwap) +
+            0.1 * (macd_signal > 0)
         )
         return confidence_score
     except Exception as e:
         logging.warning(f"Error computing confidence score for {symbol}: {e}")
         return 0
 
+def fetch_sentiment(symbol):
+    try:
+        return 0.5  # Placeholder for sentiment API integration
+    except Exception as e:
+        logging.warning(f"Error fetching sentiment for {symbol}: {e}")
+        return 0
+
 def place_trade(symbol, shares, price):
-    """Place a market order for the specified symbol."""
     try:
         api.submit_order(
             symbol=symbol,
@@ -131,74 +89,59 @@ def place_trade(symbol, shares, price):
     except Exception as e:
         logging.error(f"Error placing trade for {symbol}: {e}")
 
-def sell_unprofitable_positions():
-    """Sell all active positions that are no longer profitable."""
+def manage_risk():
     try:
         positions = api.list_positions()
-        for pos in positions:
-            unrealized_pl = float(pos.unrealized_pl)
-            if unrealized_pl < 0:  # Sell if not profitable
-                api.submit_order(
-                    symbol=pos.symbol,
-                    qty=pos.qty,
-                    side="sell",
-                    type="market",
-                    time_in_force="day"
-                )
-                logging.info(f"Sold unprofitable position: {pos.symbol} with P/L: ${unrealized_pl}")
+        for p in positions:
+            if float(p.unrealized_pl) < 0:
+                place_trade(p.symbol, p.qty, order_type="sell")
     except Exception as e:
-        logging.error(f"Error selling unprofitable positions: {e}")
+        logging.error(f"Risk management failed: {e}")
 
 def maximize_peak_hours_profitability(api):
-    """Maximize trades during peak trading hours."""
-    try:
-        now = datetime.now(pytz.timezone("US/Eastern")).time()
-        market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
-        market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
-
-        if market_open_time <= now <= (market_open_time + timedelta(hours=2)) or \
-           (market_close_time - timedelta(hours=2)) <= now <= market_close_time:
-            logging.info("Peak trading hours detected. Prioritizing high-confidence trades.")
-            return True
-        return False
-    except Exception as e:
-        logging.error(f"Error determining peak trading hours: {e}")
-        return False
+    now = datetime.now(pytz.timezone("US/Eastern")).time()
+    market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+    market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+    return market_open_time <= now <= (market_open_time + timedelta(hours=2)) or            (market_close_time - timedelta(hours=2)) <= now <= market_close_time
 
 def run_bot():
-    """Run the trading bot."""
-    try:
-        sell_unprofitable_positions()  # Clear unprofitable positions
+    manage_risk()
+    if not is_market_open():
+        logging.info("Market is closed. Running after-hours strategy.")
+        run_after_hours_strategy()
+        return
 
-        current_settings = get_current_settings()
-        penny_stocks = get_penny_stocks(api)
-        high_confidence_stocks = []
+    penny_stocks = get_penny_stocks(api)
+    if not penny_stocks:
+        logging.warning("No penny stocks found. Expanding search.")
+        return
 
-        for symbol in penny_stocks:
-            confidence_score = compute_confidence_score(api, symbol)
-            if confidence_score > current_settings["sentiment_threshold"]:
-                high_confidence_stocks.append((symbol, confidence_score))
+    for symbol in penny_stocks:
+        bars = api.get_bars(symbol, "1Min", limit=30).df
+        if bars.empty:
+            continue
 
-        high_confidence_stocks = sorted(high_confidence_stocks, key=lambda x: x[1], reverse=True)[:10]
-        logging.info(f"High-confidence stocks: {high_confidence_stocks}")
+        data = calculate_indicators(bars)
+        confidence_score = compute_confidence_score(api, symbol)
+        if confidence_score > config["TRADE_SETTINGS"]["CONFIDENCE_THRESHOLD"]:
+            price = bars["c"].iloc[-1]
+            allocation = config["TRADE_SETTINGS"]["TRADE_ALLOCATION"]
+            qty = int(allocation / price)
+            place_trade(symbol, qty)
 
-        prioritize_peak_hours = maximize_peak_hours_profitability(api)
-
-        for stock in high_confidence_stocks:
-            symbol, confidence = stock
-            price = api.get_last_trade(symbol).price
-            allocation = current_settings["trade_allocation"] * float(api.get_account().buying_power)
-
-            if prioritize_peak_hours:
-                allocation *= 1.5  # Increase allocation during peak hours
-
-            shares_to_buy = int(allocation / price)
-
-            if shares_to_buy > 0:
-                place_trade(symbol, shares_to_buy, price)
-
-    except Exception as e:
-        logging.error(f"Error during bot execution: {e}")
+def run_after_hours_strategy():
+    penny_stocks = get_penny_stocks(api)
+    for symbol in penny_stocks:
+        sentiment_score = fetch_sentiment(symbol)
+        if sentiment_score > 0.7:
+            bars = api.get_bars(symbol, "1Min", limit=30).df
+            price = bars["c"].iloc[-1]
+            vwap = bars["VWAP"].iloc[-1]
+            if price < vwap:
+                allocation = config["TRADE_SETTINGS"]["AFTER_HOURS_ALLOCATION"]
+                qty = int(allocation / price)
+                place_trade(symbol, qty)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     run_bot()
