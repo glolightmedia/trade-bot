@@ -17,11 +17,11 @@ def fetch_active_trades():
 
 def fetch_high_confidence_stocks():
     return [
-        {"Symbol": "GOOG", "Confidence Score (%)": 85},
-        {"Symbol": "AMZN", "Confidence Score (%)": 80},
-        {"Symbol": "META", "Confidence Score (%)": 78},
-        {"Symbol": "MSFT", "Confidence Score (%)": 76},
-        {"Symbol": "NFLX", "Confidence Score (%)": 75},
+        {"Symbol": "GOOG", "Confidence Score (%)": 85, "Current Price": 2750.0},
+        {"Symbol": "AMZN", "Confidence Score (%)": 80, "Current Price": 3450.0},
+        {"Symbol": "META", "Confidence Score (%)": 78, "Current Price": 320.5},
+        {"Symbol": "MSFT", "Confidence Score (%)": 76, "Current Price": 300.0},
+        {"Symbol": "NFLX", "Confidence Score (%)": 75, "Current Price": 500.0},
     ]
 
 def fetch_most_recent_trades():
@@ -43,56 +43,60 @@ st.set_page_config(
 )
 
 # Header Section
-st.title("Penny Stock Trading Dashboard")
+st.title("📈 Penny Stock Trading Dashboard")
 
 # Portfolio Overview
-st.header("Portfolio Overview")
+st.header("💼 Portfolio Overview")
 portfolio_balance, buying_power = fetch_portfolio_overview()
 col1, col2 = st.columns(2)
-col1.metric("Total Balance", f"${portfolio_balance:,.2f}")
-col2.metric("Buying Power", f"${buying_power:,.2f}")
+col1.metric("💵 Total Balance", f"${portfolio_balance:,.2f}")
+col2.metric("💳 Buying Power", f"${buying_power:,.2f}")
 
 # Market Status Indicator
-st.subheader("Market Status")
+st.subheader("🕒 Market Status")
 if is_market_open():
-    st.success("Market Open")
+    st.success("🟢 Market Open")
 else:
-    st.error("Market Closed")
+    st.error("🔴 Market Closed")
 
 # Active Trades
-st.header("Active Trade Positions")
-active_trades = fetch_active_trades()
-st.dataframe(pd.DataFrame(active_trades))
+st.header("📊 Active Trade Positions")
+with st.expander("View Active Trades"):
+    active_trades = fetch_active_trades()
+    st.dataframe(pd.DataFrame(active_trades))
 
 # Most Recent Trades
-st.subheader("Most Recent Trades")
+st.subheader("⏱️ Most Recent Trades")
 recent_trades = fetch_most_recent_trades()
 st.table(pd.DataFrame(recent_trades))
 
 # High-Confidence Stocks
-st.header("High-Confidence Stock Opportunities")
-high_confidence_stocks = fetch_high_confidence_stocks()
+st.header("🚀 High-Confidence Stock Opportunities")
 st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+high_confidence_stocks = fetch_high_confidence_stocks()
 st.table(pd.DataFrame(high_confidence_stocks))
 
 # Recommended Buys
-st.header("Recommended Buys")
-recommended_buys = [stock for stock in high_confidence_stocks if stock["Confidence Score (%)"] > 75]
+st.header("💡 Recommended Buys")
 st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+recommended_buys = [
+    {"Symbol": stock["Symbol"], "Current Price": stock["Current Price"], "Confidence Score (%)": stock["Confidence Score (%)"]}
+    for stock in high_confidence_stocks if stock["Confidence Score (%)"] > 80
+]
 st.table(pd.DataFrame(recommended_buys))
 
 # Profit/Loss Analytics
-st.header("Profit/Loss Analytics")
+st.header("📈 Profit/Loss Analytics")
 profits = [trade["Profit/Loss"] for trade in active_trades]
 if profits:
-    st.metric("Total Profit", f"${sum(profits):,.2f}")
-    st.metric("Average Profit", f"${np.mean(profits):,.2f}")
-    st.metric("Maximum Profit", f"${max(profits):,.2f}")
-    st.metric("Minimum Profit", f"${min(profits):,.2f}")
+    st.metric("💰 Total Profit", f"${sum(profits):,.2f}")
+    st.metric("📊 Average Profit", f"${np.mean(profits):,.2f}")
+    st.metric("📈 Maximum Profit", f"${max(profits):,.2f}")
+    st.metric("📉 Minimum Profit", f"${min(profits):,.2f}")
 
 # Profit Trend Chart
-st.header("Profit Trend")
-time_filter = st.radio("View Profit Trend for:", ["1D", "1 Week", "1 Month", "6 Months", "1 Year"], horizontal=True)
+st.header("📉 Profit Trend")
+time_filter = st.radio("📅 View Profit Trend for:", ["1D", "1 Week", "1 Month", "6 Months", "1 Year"], horizontal=True)
 profit_trend = pd.DataFrame({
     "Time": ["9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM"],
     "Profit": [100, 200, 150, 300]
