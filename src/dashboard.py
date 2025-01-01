@@ -1,40 +1,93 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, time as dt_time
-import pytz
-import time
+from datetime import datetime, timedelta
+from alpaca_trade_api import REST
 
-# Simulated Fetch Functions for Real-Time Updates (Replace with API Integrations)
+# Alpaca API Configuration
+API_KEY = "PKW2LOE9C15MOTYA7AV0"
+SECRET_KEY = "LgUfEKAjoV8vx8my5cpuPAEwEQsW56nOa2UzOMYj"
+BASE_URL = "https://paper-api.alpaca.markets"
+
+api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version="v2")
+
+# Fetch Portfolio Overview
 def fetch_portfolio_overview():
-    return 100000, 50000  # Portfolio balance and buying power
+    try:
+        account = api.get_account()
+        return float(account.equity), float(account.buying_power)
+    except Exception as e:
+        st.error(f"Error fetching portfolio overview: {e}")
+        return 0, 0
 
+# Fetch Active Trades
 def fetch_active_trades():
-    return [
-        {"Symbol": "AAPL", "Shares": 50, "Entry Price": 150.5, "Current Price": 152.3, "Profit/Loss": 90},
-        {"Symbol": "TSLA", "Shares": 20, "Entry Price": 600, "Current Price": 610, "Profit/Loss": 200},
-    ]
+    try:
+        positions = api.list_positions()
+        return [
+            {
+                "Symbol": pos.symbol,
+                "Shares": int(pos.qty),
+                "Entry Price": float(pos.avg_entry_price),
+                "Current Price": float(pos.current_price),
+                "Profit/Loss": float(pos.unrealized_pl)
+            }
+            for pos in positions
+        ]
+    except Exception as e:
+        st.error(f"Error fetching active trades: {e}")
+        return []
 
+# Fetch High-Confidence Stocks
 def fetch_high_confidence_stocks():
-    return [
-        {"Symbol": "GOOG", "Confidence Score (%)": 85, "Current Price": 2750.0},
-        {"Symbol": "AMZN", "Confidence Score (%)": 80, "Current Price": 3450.0},
-        {"Symbol": "META", "Confidence Score (%)": 78, "Current Price": 320.5},
-        {"Symbol": "MSFT", "Confidence Score (%)": 76, "Current Price": 300.0},
-        {"Symbol": "NFLX", "Confidence Score (%)": 75, "Current Price": 500.0},
-    ]
+    try:
+        assets = api.list_assets(status="active")
+        penny_stocks = [
+            asset.symbol for asset in assets
+            if asset.tradable and 0.5 <= asset.last_price <= 5 and asset.exchange in ["NYSE", "NASDAQ"]
+        ]
+        high_confidence = []
 
+        for symbol in penny_stocks:
+            try:
+                bars = api.get_bars(symbol, "1Day", limit=30).df
+                last_close = bars.iloc[-1]["close"]
+                confidence_score = np.random.uniform(70, 100)  # Simulated confidence score
+                high_confidence.append({"Symbol": symbol, "Confidence Score (%)": confidence_score, "Current Price": last_close})
+            except Exception:
+                continue
+
+        return sorted(high_confidence, key=lambda x: x["Confidence Score (%)"], reverse=True)[:5]
+    except Exception as e:
+        st.error(f"Error fetching high-confidence stocks: {e}")
+        return []
+
+# Fetch Most Recent Trades
 def fetch_most_recent_trades():
-    return [
-        {"Time": "10:00 AM", "Action": "BUY", "Symbol": "AAPL", "Shares": 50, "Price": 150.5},
-        {"Time": "10:15 AM", "Action": "SELL", "Symbol": "TSLA", "Shares": 20, "Price": 610},
-    ]
+    try:
+        activities = api.get_activities()
+        return [
+            {
+                "Time": act.transaction_time.strftime("%I:%M %p"),
+                "Action": act.side.capitalize(),
+                "Symbol": act.symbol,
+                "Shares": act.qty,
+                "Price": act.price
+            }
+            for act in activities[:5]
+        ]
+    except Exception as e:
+        st.error(f"Error fetching most recent trades: {e}")
+        return []
 
+# Check if Market is Open
 def is_market_open():
-    now = datetime.now(pytz.timezone("US/Eastern")).time()
-    market_open_time = dt_time(9, 30)
-    market_close_time = dt_time(16, 0)
-    return market_open_time <= now <= market_close_time
+    try:
+        clock = api.get_clock()
+        return clock.is_open
+    except Exception as e:
+        st.error(f"Error checking market status: {e}")
+        return False
 
 # Streamlit App Configuration
 st.set_page_config(
@@ -61,9 +114,8 @@ else:
 
 # Active Trades
 st.header("📊 Active Trade Positions")
-with st.expander("View Active Trades"):
-    active_trades = fetch_active_trades()
-    st.dataframe(pd.DataFrame(active_trades))
+active_trades = fetch_active_trades()
+st.dataframe(pd.DataFrame(active_trades))
 
 # Most Recent Trades
 st.subheader("⏱️ Most Recent Trades")
@@ -80,7 +132,11 @@ st.table(pd.DataFrame(high_confidence_stocks))
 st.header("💡 Recommended Buys")
 st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 recommended_buys = [
-    {"Symbol": stock["Symbol"], "Current Price": stock["Current Price"], "Confidence Score (%)": stock["Confidence Score (%)"]}
+    {
+        "Symbol": stock["Symbol"],
+        "Current Price": stock["Current Price"],
+        "Confidence Score (%)": stock["Confidence Score (%)"]
+    }
     for stock in high_confidence_stocks if stock["Confidence Score (%)"] > 80
 ]
 st.table(pd.DataFrame(recommended_buys))
