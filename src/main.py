@@ -1,8 +1,7 @@
 # Save the updated main.py content to a downloadable file
-file_path = "/mnt/data/main.py"
+file_path = "/mnt/data/main_updated.py"
 
-# Content for main.py as provided in the updated code
-main_py_content = """
+updated_main_py_content = """
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
@@ -18,6 +17,7 @@ API_KEY = config["API_KEY"]
 SECRET_KEY = config["SECRET_KEY"]
 BASE_URL = config["BASE_URL"]
 TRADE_SETTINGS = config["TRADE_SETTINGS"]
+MARKET_HOURS = config["MARKET_HOURS"]
 
 # Initialize Alpaca API
 try:
@@ -27,9 +27,29 @@ except Exception as e:
     logging.error(f"Failed to connect to Alpaca API: {e}")
     raise
 
+# Determine if the market is open or closed
+def is_market_open():
+    now = datetime.now(pytz.timezone("US/Eastern")).time()
+    market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+    market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+    pre_market_open_time = dt_time.fromisoformat(MARKET_HOURS["PRE_MARKET_OPEN"])
+    after_market_close_time = dt_time.fromisoformat(MARKET_HOURS["AFTER_MARKET_CLOSE"])
+
+    if pre_market_open_time <= now < market_open_time or market_close_time <= now < after_market_close_time:
+        return False  # Pre-market or after-hours
+    else:
+        return True  # Regular market hours
+
+# Get current settings based on market hours
+def get_current_settings():
+    if is_market_open():
+        return TRADE_SETTINGS["market_open"]
+    else:
+        return TRADE_SETTINGS["market_closed"]
+
 # Define Trading Functions
 def get_penny_stocks(api):
-    \"\"\"Fetch all tradable penny stocks.\"\"\"
+    """Fetch all tradable penny stocks."""
     try:
         assets = api.list_assets(status="active")
         return [
@@ -41,7 +61,7 @@ def get_penny_stocks(api):
         return []
 
 def fetch_sentiment(symbol):
-    \"\"\"Simulate sentiment analysis for a stock.\"\"\"
+    """Simulate sentiment analysis for a stock."""
     try:
         # Replace with a real sentiment API integration
         return 0.5  # Placeholder sentiment score
@@ -50,7 +70,7 @@ def fetch_sentiment(symbol):
         return 0
 
 def calculate_indicators(data):
-    \"\"\"Calculate SMA, RSI, MACD, and Bollinger Bands.\"\"\"
+    """Calculate SMA, RSI, MACD, and Bollinger Bands."""
     # SMA calculations
     data["SMA_5"] = data["c"].rolling(window=5).mean()
     data["SMA_15"] = data["c"].rolling(window=15).mean()
@@ -76,7 +96,7 @@ def calculate_indicators(data):
     return data
 
 def compute_confidence_score(api, symbol):
-    \"\"\"Compute a refined confidence score for a stock based on sentiment, technicals, and volume.\"\"\"
+    """Compute a refined confidence score for a stock based on sentiment, technicals, and volume."""
     try:
         bars = api.get_bars(symbol, "1Day", limit=30).df
         indicators = calculate_indicators(bars)
@@ -102,7 +122,7 @@ def compute_confidence_score(api, symbol):
         return 0
 
 def place_trade(symbol, shares, price):
-    \"\"\"Place a market order for the specified symbol.\"\"\"
+    """Place a market order for the specified symbol."""
     try:
         api.submit_order(
             symbol=symbol,
@@ -115,24 +135,47 @@ def place_trade(symbol, shares, price):
     except Exception as e:
         logging.error(f"Error placing trade for {symbol}: {e}")
 
-def run_bot():
-    \"\"\"Run the trading bot.\"\"\"
+def maximize_peak_hours_profitability(api):
+    """Maximize trades during peak trading hours."""
     try:
+        now = datetime.now(pytz.timezone("US/Eastern")).time()
+        market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+        market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+
+        if market_open_time <= now <= (market_open_time + timedelta(hours=2)) or \
+           (market_close_time - timedelta(hours=2)) <= now <= market_close_time:
+            logging.info("Peak trading hours detected. Prioritizing high-confidence trades.")
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"Error determining peak trading hours: {e}")
+        return False
+
+def run_bot():
+    """Run the trading bot."""
+    try:
+        current_settings = get_current_settings()
         penny_stocks = get_penny_stocks(api)
         high_confidence_stocks = []
 
         for symbol in penny_stocks:
             confidence_score = compute_confidence_score(api, symbol)
-            if confidence_score > TRADE_SETTINGS["sentiment_threshold"]:
+            if confidence_score > current_settings["sentiment_threshold"]:
                 high_confidence_stocks.append((symbol, confidence_score))
 
         high_confidence_stocks = sorted(high_confidence_stocks, key=lambda x: x[1], reverse=True)[:10]
         logging.info(f"High-confidence stocks: {high_confidence_stocks}")
 
+        prioritize_peak_hours = maximize_peak_hours_profitability(api)
+
         for stock in high_confidence_stocks:
             symbol, confidence = stock
             price = api.get_last_trade(symbol).price
-            allocation = TRADE_SETTINGS["trade_allocation"] * float(api.get_account().buying_power)
+            allocation = current_settings["trade_allocation"] * float(api.get_account().buying_power)
+
+            if prioritize_peak_hours:
+                allocation *= 1.5  # Increase allocation during peak hours
+
             shares_to_buy = int(allocation / price)
 
             if shares_to_buy > 0:
@@ -147,6 +190,6 @@ if __name__ == "__main__":
 
 # Write to the file
 with open(file_path, "w") as file:
-    file.write(main_py_content)
+    file.write(updated_main_py_content)
 
 file_path
