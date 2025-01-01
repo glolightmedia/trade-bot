@@ -62,6 +62,22 @@ def fetch_high_confidence_stocks():
     except Exception as e:
         st.error(f"Error fetching high-confidence stocks: {e}")
         return []
+def fetch_recommended_buys():
+    try:
+        high_confidence_stocks = fetch_high_confidence_stocks()
+        recommended = []
+        for stock in high_confidence_stocks:
+            if stock["Confidence Score (%)"] >= 85:  # Recommended threshold
+                predicted_growth = stock["Current Price"] * 1.15  # Simulated 15% growth
+                recommended.append({
+                    "Symbol": stock["Symbol"],
+                    "Current Price": stock["Current Price"],
+                    "Predicted Growth": predicted_growth
+                })
+        return recommended
+    except Exception as e:
+        st.error(f"Error fetching recommended buys: {e}")
+        return []
 
 # Fetch Most Recent Trades
 def fetch_most_recent_trades():
