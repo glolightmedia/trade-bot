@@ -1,3 +1,8 @@
+# Save the updated main.py content to a downloadable file
+file_path = "/mnt/data/main.py"
+
+# Content for main.py as provided in the updated code
+main_py_content = """
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
@@ -24,7 +29,7 @@ except Exception as e:
 
 # Define Trading Functions
 def get_penny_stocks(api):
-    """Fetch all tradable penny stocks."""
+    \"\"\"Fetch all tradable penny stocks.\"\"\"
     try:
         assets = api.list_assets(status="active")
         return [
@@ -35,31 +40,69 @@ def get_penny_stocks(api):
         logging.error(f"Error fetching penny stocks: {e}")
         return []
 
-def compute_confidence_score(api, symbol):
-    """Compute a confidence score for a stock based on sentiment, technicals, and volume."""
+def fetch_sentiment(symbol):
+    \"\"\"Simulate sentiment analysis for a stock.\"\"\"
     try:
-        bars = api.get_bars(symbol, "1Day", limit=30).df
-        indicators = calculate_indicators(bars)
-        volume_factor = bars.iloc[-1]["v"] / bars["v"].mean()
-        sentiment = fetch_sentiment(symbol)  # Replace with actual sentiment API
-        return 0.4 * sentiment + 0.4 * indicators.iloc[-1]["RSI"] / 100 + 0.2 * volume_factor
+        # Replace with a real sentiment API integration
+        return 0.5  # Placeholder sentiment score
     except Exception as e:
-        logging.warning(f"Error computing confidence score for {symbol}: {e}")
+        logging.warning(f"Error fetching sentiment for {symbol}: {e}")
         return 0
 
 def calculate_indicators(data):
-    """Calculate SMA and RSI indicators."""
+    \"\"\"Calculate SMA, RSI, MACD, and Bollinger Bands.\"\"\"
+    # SMA calculations
     data["SMA_5"] = data["c"].rolling(window=5).mean()
     data["SMA_15"] = data["c"].rolling(window=15).mean()
+
+    # RSI calculation
     delta = data["c"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     data["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD calculation
+    data["EMA_12"] = data["c"].ewm(span=12, adjust=False).mean()
+    data["EMA_26"] = data["c"].ewm(span=26, adjust=False).mean()
+    data["MACD"] = data["EMA_12"] - data["EMA_26"]
+
+    # Bollinger Bands
+    rolling_mean = data["c"].rolling(window=20).mean()
+    rolling_std = data["c"].rolling(window=20).std()
+    data["Bollinger_Upper"] = rolling_mean + (2 * rolling_std)
+    data["Bollinger_Lower"] = rolling_mean - (2 * rolling_std)
+
     return data
 
+def compute_confidence_score(api, symbol):
+    \"\"\"Compute a refined confidence score for a stock based on sentiment, technicals, and volume.\"\"\"
+    try:
+        bars = api.get_bars(symbol, "1Day", limit=30).df
+        indicators = calculate_indicators(bars)
+        volume_factor = bars.iloc[-1]["v"] / bars["v"].mean()
+        macd_signal = indicators.iloc[-1]["MACD"]
+        bollinger_score = (
+            (bars["c"].iloc[-1] - indicators["Bollinger_Lower"].iloc[-1]) /
+            (indicators["Bollinger_Upper"].iloc[-1] - indicators["Bollinger_Lower"].iloc[-1])
+        )
+        sentiment = fetch_sentiment(symbol)
+
+        # Weighted scoring formula
+        confidence_score = (
+            0.3 * sentiment +
+            0.2 * (indicators.iloc[-1]["RSI"] / 100) +
+            0.2 * volume_factor +
+            0.2 * (macd_signal / abs(macd_signal).max()) +
+            0.1 * bollinger_score
+        )
+        return confidence_score
+    except Exception as e:
+        logging.warning(f"Error computing confidence score for {symbol}: {e}")
+        return 0
+
 def place_trade(symbol, shares, price):
-    """Place a market order for the specified symbol."""
+    \"\"\"Place a market order for the specified symbol.\"\"\"
     try:
         api.submit_order(
             symbol=symbol,
@@ -73,7 +116,7 @@ def place_trade(symbol, shares, price):
         logging.error(f"Error placing trade for {symbol}: {e}")
 
 def run_bot():
-    """Run the trading bot."""
+    \"\"\"Run the trading bot.\"\"\"
     try:
         penny_stocks = get_penny_stocks(api)
         high_confidence_stocks = []
@@ -100,3 +143,10 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+"""
+
+# Write to the file
+with open(file_path, "w") as file:
+    file.write(main_py_content)
+
+file_path
