@@ -38,25 +38,26 @@ def fetch_active_trades():
         st.error(f"Error fetching active trades: {e}")
         return []
 
-# Fetch High-Confidence Stocks
 def fetch_high_confidence_stocks():
     try:
         assets = api.list_assets(status="active")
         penny_stocks = [
             asset.symbol for asset in assets
-            if asset.tradable and 0.5 <= asset.last_price <= 5 and asset.exchange in ["NYSE", "NASDAQ"]
+            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
         ]
+        
         high_confidence = []
-
         for symbol in penny_stocks:
             try:
-                bars = api.get_bars(symbol, "1Day", limit=30).df
-                last_close = bars.iloc[-1]["close"]
-                confidence_score = np.random.uniform(70, 100)  # Simulated confidence score
-                high_confidence.append({"Symbol": symbol, "Confidence Score (%)": confidence_score, "Current Price": last_close})
-            except Exception:
-                continue
-
+                # Fetch the last trade price
+                last_trade = api.get_last_trade(symbol)
+                price = last_trade.price
+                if 0.5 <= price <= 5:  # Filter for penny stocks
+                    confidence_score = np.random.uniform(70, 100)  # Simulated confidence score
+                    high_confidence.append({"Symbol": symbol, "Confidence Score (%)": confidence_score, "Current Price": price})
+            except Exception as e:
+                continue  # Skip stocks with issues
+        
         return sorted(high_confidence, key=lambda x: x["Confidence Score (%)"], reverse=True)[:5]
     except Exception as e:
         st.error(f"Error fetching high-confidence stocks: {e}")
