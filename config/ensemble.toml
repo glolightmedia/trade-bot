@@ -1,0 +1,8 @@
+[weights]
+# Define the weights for each strategy in the ensemble
+# Higher weight gives more influence to the corresponding strategy
+dema = 0.3
+macd = 0.25
+ppo = 0.2
+cci = 0.15
+breakout = 0.1
