@@ -1,15 +1,22 @@
 import logging
 import json
 from datetime import datetime, time as dt_time
-from src.broker import Broker
-from src.portfolio_manager import Portfolio
-from src.exchange_utils import ExchangeUtils
-from src.orders.limit_order import LimitOrder
-from src.orders.sticky_order import StickyOrder
+from alpaca_trade_api import REST
+import pandas as pd
+import pytz
+from src.strategies.strategy_loader import StrategyLoader
+from src.machine_learning.random_forest import RandomForestModel
+from src.machine_learning.lstm_model import LSTMModel
+from src.machine_learning.sentiment_model import SentimentModel
+from src.plugins.sentiment_plugin import SentimentPlugin
+from src.config.logging_config import setup_logging
 
 # Load configuration
 with open("config/config.json") as f:
     config = json.load(f)
+
+# Initialize Logging
+setup_logging()
 
 API_KEY = config["API_KEY"]
 SECRET_KEY = config["SECRET_KEY"]
@@ -17,86 +24,125 @@ BASE_URL = config["BASE_URL"]
 TRADE_SETTINGS = config["TRADE_SETTINGS"]
 MARKET_HOURS = config["MARKET_HOURS"]
 
-# Initialize Broker, Portfolio, and Exchange API
-from alpaca_trade_api import REST
+# Initialize Alpaca API
 api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version="v2")
-broker = Broker(config, api)
-portfolio = Portfolio(config, api)
 
-# Global Trading Parameters
-trade_allocation = TRADE_SETTINGS.get("TRADE_ALLOCATION", 0.7)
-confidence_threshold = TRADE_SETTINGS.get("CONFIDENCE_THRESHOLD", 0.6)
-stop_loss_trailing_factor = TRADE_SETTINGS.get("STOP_LOSS_TRAILING_FACTOR", 0.02)
-max_hourly_trades = TRADE_SETTINGS.get("MAX_HOURLY_TRADES", 30)
+# Initialize Strategy Loader and Plugins
+strategy_loader = StrategyLoader(config_dir="config/strategies/")
+strategy_loader.load_strategies()
+strategies = strategy_loader.strategies
+sentiment_plugin = SentimentPlugin()
 
-# Check Market Status
+# Load ML Models
+random_forest = RandomForestModel()
+lstm_model = LSTMModel(sequence_length=30)
+sentiment_model = SentimentModel()
+
+random_forest.load_model("models/random_forest.pkl")
+lstm_model.load_model("models/lstm_model.h5")
+sentiment_model.load_model("models/vectorizer.pkl", "models/sentiment_model.pkl")
+
+
 def is_market_open():
-    now = datetime.now().time()
-    market_open = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
-    market_close = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
-    return market_open <= now <= market_close
+    now = datetime.now(pytz.timezone("US/Eastern")).time()
+    market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+    market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+    return market_open_time <= now < market_close_time
 
-# Fetch High-Confidence Stocks
-def find_high_confidence_stocks():
+
+def get_penny_stocks(api):
     try:
-        broker.sync()
-        stocks = broker.get_top_stocks(threshold=confidence_threshold)
-        logging.info(f"High-confidence stocks: {stocks}")
-        return stocks
+        assets = api.list_assets(status="active")
+        return [
+            asset.symbol for asset in assets
+            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
+            and 0.5 <= asset.last_price <= 5
+            and asset.volume >= 1_000_000
+            and abs(asset.change_percent) > 3
+        ]
     except Exception as e:
-        logging.error(f"Error finding high-confidence stocks: {e}")
+        logging.error(f"Error fetching penny stocks: {e}")
         return []
 
-# Execute Trade Using Advanced Order Types
-def execute_trade(stock, allocation):
+
+def fetch_sentiment(symbol):
     try:
-        price = stock["price"]
-        qty = allocation // price
-        if qty <= 0:
-            logging.warning(f"Insufficient funds to trade {stock['symbol']}")
-            return
-
-        order = LimitOrder(api, broker.market)
-        order.create("buy", qty, price)
-        logging.info(f"Submitted limit order for {qty} shares of {stock['symbol']} at ${price:.2f}")
+        return sentiment_plugin.analyze_sentiment(symbol)
     except Exception as e:
-        logging.error(f"Error executing trade for {stock['symbol']}: {e}")
+        logging.error(f"Error fetching sentiment for {symbol}: {e}")
+        return 0
 
-# Monitor Positions and Adjust Orders
-def monitor_positions():
+
+def compute_confidence_score(data, symbol):
     try:
-        portfolio.set_balances()
-        positions = portfolio.convert_balances()
-
-        for symbol, position in positions.items():
-            current_price = broker.get_ticker()["price"]
-            if current_price / position["buy_price"] - 1 < -stop_loss_trailing_factor:
-                broker.sell(symbol, position["qty"])
-                logging.info(f"Sold {symbol} due to stop-loss trigger.")
+        sentiment = fetch_sentiment(symbol)
+        random_forest_score = random_forest.predict(data)
+        lstm_score = lstm_model.predict(data)
+        final_score = (
+            0.4 * random_forest_score +
+            0.4 * lstm_score +
+            0.2 * sentiment
+        )
+        return final_score
     except Exception as e:
-        logging.error(f"Error monitoring positions: {e}")
+        logging.warning(f"Error computing confidence score for {symbol}: {e}")
+        return 0
 
-# Main Trading Bot Logic
+
+def place_trade(symbol, shares):
+    try:
+        api.submit_order(
+            symbol=symbol,
+            qty=shares,
+            side="buy",
+            type="market",
+            time_in_force="day"
+        )
+        logging.info(f"Executed trade: {shares} shares of {symbol}")
+    except Exception as e:
+        logging.error(f"Error placing trade for {symbol}: {e}")
+
+
 def run_bot():
     if not is_market_open():
-        logging.info("Market is closed.")
+        logging.info("Market is closed. Running after-hours strategy.")
+        run_after_hours_strategy()
         return
 
-    # Sync Broker and Portfolio
-    broker.sync()
-    portfolio.set_balances()
+    penny_stocks = get_penny_stocks(api)
+    if not penny_stocks:
+        logging.warning("No penny stocks found.")
+        return
 
-    # Get High-Confidence Stocks
-    stocks = find_high_confidence_stocks()
-    tradable_balance = portfolio.get_balance("USD") * trade_allocation
+    for symbol in penny_stocks:
+        bars = api.get_bars(symbol, "1Min", limit=30).df
+        if bars.empty:
+            continue
 
-    # Execute Trades
-    for stock in stocks[:max_hourly_trades]:
-        execute_trade(stock, tradable_balance / max_hourly_trades)
+        data = bars[["open", "high", "low", "close", "volume"]]
+        confidence_score = compute_confidence_score(data, symbol)
+        if confidence_score > TRADE_SETTINGS["CONFIDENCE_THRESHOLD"]:
+            price = bars["close"].iloc[-1]
+            allocation = TRADE_SETTINGS["TRADE_ALLOCATION"]
+            shares = int(allocation / price)
+            place_trade(symbol, shares)
 
-    # Monitor Positions
-    monitor_positions()
+
+def run_after_hours_strategy():
+    penny_stocks = get_penny_stocks(api)
+    for symbol in penny_stocks:
+        bars = api.get_bars(symbol, "1Min", limit=30).df
+        if bars.empty:
+            continue
+
+        price = bars["close"].iloc[-1]
+        vwap = (bars["volume"] * bars["close"]).cumsum() / bars["volume"].cumsum()
+        if price < vwap.iloc[-1]:
+            allocation = TRADE_SETTINGS["AFTER_HOURS_ALLOCATION"]
+            shares = int(allocation / price)
+            place_trade(symbol, shares)
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.info("Starting Trading Bot")
     run_bot()
