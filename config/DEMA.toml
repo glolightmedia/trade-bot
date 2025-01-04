@@ -1,0 +1,6 @@
+[parameters]
+# Weight is the period used for calculating the DEMA
+weight = 21
+
+# Thresholds define the percentage divergence from DEMA for buy/sell signals
+thresholds = { up = 0.025, down = -0.025 }
