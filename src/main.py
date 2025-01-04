@@ -1,12 +1,10 @@
-
 import logging
 import json
 from datetime import datetime, time as dt_time, timedelta
 from alpaca_trade_api import REST
 import pandas as pd
-import pytz
-from textblob import TextBlob
 import numpy as np
+import pytz
 
 # Load configuration
 with open("config/config.json") as f:
@@ -21,119 +19,117 @@ MARKET_HOURS = config["MARKET_HOURS"]
 # Initialize Alpaca API
 api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version="v2")
 
-def is_market_open():
-    now = datetime.now(pytz.timezone("US/Eastern")).time()
-    market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
-    market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
-    return market_open_time <= now < market_close_time
+# Trading Parameters
+target_hourly_profit = 0.12
+stop_loss_trailing_factor = 0.02
+max_hourly_trades = 30
+trade_allocation = 0.7
+confidence_threshold = TRADE_SETTINGS["CONFIDENCE_THRESHOLD"]
+trade_log = []
+active_positions = {}
 
-def get_penny_stocks(api):
-    try:
-        assets = api.list_assets(status="active")
-        return [
-            asset.symbol for asset in assets
-            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
-            and 0.5 <= asset.last_price <= 5
-            and asset.volume >= 1_000_000
-            and abs(asset.change_percent) > 3
-        ]
-    except Exception as e:
-        logging.error(f"Error fetching penny stocks: {e}")
-        return []
+# Indicator Functions
+def calculate_sma(data, period):
+    return data.rolling(window=period).mean()
+
+def calculate_rsi(data, period):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_macd(data, short_period, long_period, signal_period):
+    short_ema = data.ewm(span=short_period, adjust=False).mean()
+    long_ema = data.ewm(span=long_period, adjust=False).mean()
+    macd_line = short_ema - long_ema
+    signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
+    return macd_line, signal_line, macd_line - signal_line
+
+def calculate_cci(data, period, constant=0.015):
+    tp = (data['high'] + data['low'] + data['close']) / 3
+    sma = tp.rolling(window=period).mean()
+    mad = tp.rolling(window=period).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=False)
+    return (tp - sma) / (constant * mad)
 
 def calculate_indicators(data):
-    data["SMA_5"] = data["c"].rolling(window=5).mean()
-    data["EMA_12"] = data["c"].ewm(span=12, adjust=False).mean()
-    data["EMA_26"] = data["c"].ewm(span=26, adjust=False).mean()
-    data["MACD"] = data["EMA_12"] - data["EMA_26"]
-    data["RSI"] = 100 - 100 / (1 + data["c"].diff().clip(lower=0).rolling(14).mean() /
-                               data["c"].diff().clip(upper=0).abs().rolling(14).mean())
-    data["VWAP"] = (data["v"] * data["c"]).cumsum() / data["v"].cumsum()
-    data["ATR"] = data["h"].rolling(window=14).max() - data["l"].rolling(window=14).min()
+    data["SMA_5"] = calculate_sma(data["close"], 5)
+    data["SMA_20"] = calculate_sma(data["close"], 20)
+    data["RSI"] = calculate_rsi(data["close"], 14)
+    data["MACD_Line"], data["MACD_Signal"], data["MACD_Histogram"] = calculate_macd(data["close"], 12, 26, 9)
+    data["CCI"] = calculate_cci(data, 20)
     return data
 
-def compute_confidence_score(api, symbol):
+# Market Status
+def is_market_open():
+    now = datetime.now(pytz.timezone("US/Eastern")).time()
+    market_open = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+    market_close = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+    return market_open <= now <= market_close
+
+# High-Confidence Stock Finder
+def find_high_confidence_stocks():
+    assets = api.list_assets(status="active")
+    high_confidence_stocks = []
+
     try:
-        bars = api.get_bars(symbol, "1Day", limit=30).df
-        indicators = calculate_indicators(bars)
-        volume_factor = bars.iloc[-1]["v"] / bars["v"].mean()
-        macd_signal = indicators.iloc[-1]["MACD"]
-        vwap = indicators["VWAP"].iloc[-1]
-        price = bars["c"].iloc[-1]
-        sentiment = fetch_sentiment(symbol)
-        confidence_score = (
-            0.25 * sentiment +
-            0.25 * (indicators.iloc[-1]["RSI"] / 100) +
-            0.2 * volume_factor +
-            0.2 * (price > vwap) +
-            0.1 * (macd_signal > 0)
-        )
-        return confidence_score
+        snapshots = api.get_snapshots([asset.symbol for asset in assets if asset.tradable])
+        for symbol, snapshot in snapshots.items():
+            if snapshot and snapshot.daily_bar:
+                latest_price = snapshot.daily_bar.c
+                confidence_score = snapshot.daily_bar.v / (snapshot.daily_bar.vw * 5)
+                if 0.5 <= latest_price <= 5 and confidence_score > confidence_threshold:
+                    high_confidence_stocks.append({"symbol": symbol, "price": latest_price, "confidence_score": confidence_score})
     except Exception as e:
-        logging.warning(f"Error computing confidence score for {symbol}: {e}")
-        return 0
+        logging.error(f"Error finding high-confidence stocks: {e}")
+    return sorted(high_confidence_stocks, key=lambda x: x["confidence_score"], reverse=True)[:30]
 
-def fetch_sentiment(symbol):
-    # Integrate sentiment APIs (e.g., Twitter, Reddit, News API)
-    return 0.5
+# Execute Trade
+def execute_trade(symbol, price, allocation):
+    qty = int(allocation // price)
+    if qty <= 0:
+        logging.warning(f"Insufficient funds to trade {symbol}")
+        return
 
-def calculate_stop_loss(entry_price, atr):
-    return entry_price - (1.5 * atr)
-
-def detect_volume_spike(data):
-    rvol = data["v"].iloc[-1] / data["v"].mean()
-    return rvol > 1.5
-
-def place_trade(symbol, shares, price):
     try:
-        api.submit_order(
-            symbol=symbol,
-            qty=shares,
-            side="buy",
-            type="market",
-            time_in_force="day"
-        )
-        logging.info(f"Executed trade: {shares} shares of {symbol} at ${price}")
+        api.submit_order(symbol, qty, 'buy', 'market', 'day')
+        logging.info(f"Bought {qty} shares of {symbol} at ${price:.2f}")
+        active_positions[symbol] = {"qty": qty, "buy_price": price}
     except Exception as e:
-        logging.error(f"Error placing trade for {symbol}: {e}")
+        logging.error(f"Error trading {symbol}: {e}")
 
+# Monitor and Sell Positions
+def monitor_positions():
+    global active_positions
+    to_sell = []
+
+    for symbol, position in active_positions.items():
+        bars = api.get_bars(symbol, "1Min", limit=1).df
+        if bars.empty:
+            continue
+        current_price = bars["close"].iloc[-1]
+        if current_price / position["buy_price"] - 1 < -stop_loss_trailing_factor:
+            to_sell.append(symbol)
+
+    for symbol in to_sell:
+        qty = active_positions[symbol]["qty"]
+        api.submit_order(symbol, qty, 'sell', 'market', 'day')
+        logging.info(f"Sold {qty} shares of {symbol}")
+        del active_positions[symbol]
+
+# Main Bot Execution
 def run_bot():
     if not is_market_open():
-        logging.info("Market is closed. Running after-hours strategy.")
-        run_after_hours_strategy()
+        logging.info("Market is closed.")
         return
 
-    penny_stocks = get_penny_stocks(api)
-    if not penny_stocks:
-        logging.warning("No penny stocks found. Expanding search.")
-        return
+    stocks = find_high_confidence_stocks()
+    tradable_balance = api.get_account().buying_power * trade_allocation
 
-    for symbol in penny_stocks:
-        bars = api.get_bars(symbol, "1Min", limit=30).df
-        if bars.empty:
-            continue
+    for stock in stocks[:max_hourly_trades]:
+        execute_trade(stock["symbol"], stock["price"], tradable_balance / max_hourly_trades)
 
-        data = calculate_indicators(bars)
-        confidence_score = compute_confidence_score(api, symbol)
-        if confidence_score > config["TRADE_SETTINGS"]["CONFIDENCE_THRESHOLD"]:
-            price = bars["c"].iloc[-1]
-            allocation = config["TRADE_SETTINGS"]["TRADE_ALLOCATION"]
-            qty = int(allocation / price)
-            place_trade(symbol, qty)
-
-def run_after_hours_strategy():
-    penny_stocks = get_penny_stocks(api)
-    for symbol in penny_stocks:
-        bars = api.get_bars(symbol, "1Min", limit=30).df
-        if bars.empty:
-            continue
-
-        price = bars["c"].iloc[-1]
-        vwap = bars["VWAP"].iloc[-1]
-        if price < vwap and detect_volume_spike(bars):
-            allocation = config["TRADE_SETTINGS"]["AFTER_HOURS_ALLOCATION"]
-            qty = int(allocation / price)
-            place_trade(symbol, qty)
+    monitor_positions()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
