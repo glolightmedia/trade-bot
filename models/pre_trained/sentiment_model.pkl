@@ -1,0 +1,54 @@
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import joblib
+import os
+
+# Generate synthetic text data for demonstration
+data = pd.DataFrame({
+    "text": [
+        "Stock prices are surging today!",
+        "Market crashes, investors are worried.",
+        "Earnings report exceeds expectations.",
+        "Economic slowdown predicted by analysts.",
+        "Strong demand boosts company revenue.",
+        "Investors see growth opportunities.",
+        "Weak outlook causes sell-off.",
+        "Tech stocks rally after positive data.",
+        "Bearish trends dominate the market.",
+        "Optimistic views drive prices higher."
+    ],
+    "sentiment": [1, 0, 1, 0, 1, 1, 0, 1, 0, 1]  # 1 = Positive, 0 = Negative
+})
+
+# Splitting the data
+X = data["text"]
+y = data["sentiment"]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Vectorizing the text data
+vectorizer = TfidfVectorizer()
+X_train_vec = vectorizer.fit_transform(X_train)
+X_test_vec = vectorizer.transform(X_test)
+
+# Training the Naive Bayes model
+model = MultinomialNB()
+model.fit(X_train_vec, y_train)
+
+# Testing the model
+y_pred = model.predict(X_test_vec)
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Model Accuracy: {accuracy:.2f}")
+
+# Saving the trained model and vectorizer
+model_path = "models/pre_trained/sentiment_model.pkl"
+vectorizer_path = "models/pre_trained/vectorizer.pkl"
+os.makedirs(os.path.dirname(model_path), exist_ok=True)  # Ensure directory exists
+
+joblib.dump(model, model_path)
+joblib.dump(vectorizer, vectorizer_path)
+print(f"Sentiment model saved to {model_path}")
+print(f"Vectorizer saved to {vectorizer_path}")
