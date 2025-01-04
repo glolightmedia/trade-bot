@@ -1,0 +1,18 @@
+[parameters]
+# Short EMA period for PPO calculation
+short = 12
+
+# Long EMA period for PPO calculation
+long = 26
+
+# Signal line period for PPO calculation
+signal = 9
+
+# Thresholds for triggering buy/sell signals based on PPO histogram
+# 'up' defines the percentage histogram value for a buy signal
+# 'down' defines the percentage histogram value for a sell signal
+thresholds = { up = 0.025, down = -0.025 }
+
+# Optional: Additional settings for PPO strategy
+# Persistence defines the minimum consecutive signals needed before acting
+persistence = 2
