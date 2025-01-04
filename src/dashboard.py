@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -44,6 +43,21 @@ def fetch_active_trades():
 def calculate_stop_loss(entry_price, atr):
     return entry_price - (1.5 * atr)
 
+# Unified Confidence Score Calculation
+def compute_confidence_score(symbol):
+    try:
+        bars = api.get_bars(symbol, "1Day", limit=30).df
+        if bars.empty:
+            return 0
+        vwap = (bars["c"] * bars["v"]).cumsum() / bars["v"].cumsum()
+        rsi = 100 - (100 / (1 + (bars["c"].diff().clip(lower=0).rolling(14).mean() /
+                                bars["c"].diff().clip(upper=0).abs().rolling(14).mean())))
+        sentiment_score = 0.5  # Placeholder for sentiment API integration
+        return (0.4 * sentiment_score + 0.3 * (rsi.iloc[-1] / 100) + 0.3 * (bars.iloc[-1]["c"] > vwap.iloc[-1]))
+    except Exception as e:
+        st.error(f"Error computing confidence score for {symbol}: {e}")
+        return 0
+
 # Fetch High-Confidence Stocks
 def fetch_high_confidence_stocks():
     try:
@@ -67,21 +81,6 @@ def fetch_high_confidence_stocks():
     except Exception as e:
         st.error(f"Error fetching high-confidence stocks: {e}")
         return []
-
-# Compute Confidence Score
-def compute_confidence_score(symbol):
-    try:
-        bars = api.get_bars(symbol, "1Day", limit=30).df
-        if bars.empty:
-            return 0
-        vwap = (bars["c"] * bars["v"]).cumsum() / bars["v"].cumsum()
-        rsi = 100 - (100 / (1 + (bars["c"].diff().clip(lower=0).rolling(14).mean() /
-                                bars["c"].diff().clip(upper=0).abs().rolling(14).mean())))
-        sentiment_score = 0.5  # Placeholder for sentiment API integration
-        return (0.4 * sentiment_score + 0.3 * (rsi.iloc[-1] / 100) + 0.3 * (bars.iloc[-1]["c"] > vwap.iloc[-1]))
-    except Exception as e:
-        st.error(f"Error computing confidence score for {symbol}: {e}")
-        return 0
 
 # Fetch Most Recent Trades
 def fetch_most_recent_trades():
@@ -159,7 +158,6 @@ if profits:
 
 # Profit Trend Chart
 st.header("📉 Profit Trend")
-time_filter = st.radio("📅 View Profit Trend for:", ["1D", "1 Week", "1 Month", "6 Months", "1 Year"], horizontal=True)
 profit_trend = pd.DataFrame({
     "Time": ["9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM"],
     "Profit": [100, 200, 150, 300]
