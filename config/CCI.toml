@@ -1,0 +1,11 @@
+[parameters]
+# Constant multiplier for typical price deviation in CCI calculation
+constant = 0.015
+
+# Number of periods for the rolling window in CCI calculation
+history = 20
+
+# Thresholds for triggering buy/sell signals based on CCI
+# 'up' defines the overbought threshold
+# 'down' defines the oversold threshold
+thresholds = { up = 100, down = -100 }
