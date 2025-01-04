@@ -1,0 +1,18 @@
+[parameters]
+# Short EMA period for MACD calculation
+short = 12
+
+# Long EMA period for MACD calculation
+long = 26
+
+# Signal line period for MACD calculation
+signal = 9
+
+# Thresholds for triggering buy/sell signals based on MACD histogram
+# 'up' defines the minimum histogram value for a buy signal
+# 'down' defines the maximum histogram value for a sell signal
+thresholds = { up = 0.02, down = -0.02 }
+
+# Optional: Additional settings for MACD strategy
+# Persistence defines the minimum consecutive signals needed before acting
+persistence = 2
