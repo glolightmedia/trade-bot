@@ -29,6 +29,10 @@ rotatingfilehandler==0.4.6
 # Plugins and Extendable Modules
 toml==0.10.2
 
+# Build Tools
+setuptools>=65.5.1
+wheel>=0.40.0
+
 # Testing and Development
 pytest==7.2.0
 pytest-mock==3.10.0
