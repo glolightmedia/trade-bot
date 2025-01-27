@@ -1,8 +1,6 @@
-[weights]
-# Define the weights for each strategy in the ensemble
-# Higher weight gives more influence to the corresponding strategy
-dema = 0.3
-macd = 0.25
-ppo = 0.2
-cci = 0.15
-breakout = 0.1
+[ensemble]
+base_weights = { "MACD" = 0.4, "RSI" = 0.3, "Breakout" = 0.3 }
+performance_window = 24  # Evaluate performance over 24 hours
+confidence_threshold = 0.6  # Require 60% confidence to act
+stop_loss = 0.02  # Global 2% stop-loss
+take_profit = 0.10  # Global 10% take-profit
