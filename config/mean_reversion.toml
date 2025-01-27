@@ -1,0 +1,8 @@
+[mean_reversion]
+lookback_period = 20  # Lookback period for Bollinger Bands
+upper_multiplier = 2.0  # Multiplier for upper Bollinger Band
+lower_multiplier = 2.0  # Multiplier for lower Bollinger Band
+volatility_threshold = 0.05  # Minimum volatility to consider a trade
+volume_threshold = 1.5  # Volume must be 1.5x the average to confirm a signal
+stop_loss = 0.02  # 2% stop-loss
+take_profit = 0.10  # 10% take-profit
