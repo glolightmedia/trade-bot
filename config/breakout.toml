@@ -1,15 +1,6 @@
-[parameters]
-# Lookback period to calculate resistance and support levels
-lookback_period = 14
-
-# Thresholds for triggering buy/sell signals based on breakout levels
-# 'up' defines the multiplier for a breakout above resistance
-# 'down' defines the multiplier for a breakout below support
-thresholds = { up = 1.02, down = 0.98 }
-
-# Optional: Additional filters for breakout signals
-# Minimum volume to confirm the breakout
-volume_filter = 100000
-
-# Minimum price movement in percentage to validate breakout
-price_movement_threshold = 0.5
+[breakout]
+lookback_period = 20  # Lookback period for calculating resistance/support
+volatility_threshold = 0.05  # Minimum volatility to consider a breakout
+volume_multiplier = 2.0  # Volume must be 2x the average to confirm breakout
+stop_loss = 0.02  # 2% stop-loss
+take_profit = 0.10  # 10% take-profit
