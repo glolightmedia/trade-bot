@@ -1,3 +1,9 @@
+Lets update the Position Sizing:
+
+Modify src/portfolio_manager.py to allocate smaller positions for penny stocks. Since they are highly volatile, smaller positions reduce risk exposure.
+
+Implement dynamic position sizing based on volatility (e.g., higher volatility = smaller position size).
+
 import logging
 
 class Portfolio:
