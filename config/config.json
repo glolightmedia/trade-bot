@@ -21,6 +21,14 @@
         "REAL_TIME_ADAPTIVE": {
             "update_interval_seconds": 60,
             "retrain_frequency_hours": 6
+        },
+        "HFT_SETTINGS": {
+            "enabled": true,
+            "timeframe": "1Min",  # Use 1-minute candles for HFT
+            "max_trades_per_hour": 30,  # Limit to avoid over-trading
+            "volatility_threshold": 0.05,  # Minimum volatility for HFT
+            "penny_stock_allocation": 0.005,  # Max 0.5% allocation for penny stocks
+            "risk_multiplier": 1.5  # Adjust risk based on volatility
         }
     },
     "MARKET_HOURS": {
@@ -31,7 +39,12 @@
     },
     "PORTFOLIO": {
         "initial_balance": 100000,
-        "commission_cost": 0.005
+        "commission_cost": 0.005,
+        "position_sizing": {
+            "max_risk_per_trade": 0.01,  # Max 1% risk per trade
+            "penny_stock_max_allocation": 0.005,  # Max 0.5% for penny stocks
+            "standard_allocation": 0.02  # Max 2% for non-penny stocks
+        }
     },
     "SENTIMENT_API": {
         "TWITTER_API_KEY": "7ULez9WDztYD6LspvbJ7ClRYt",
@@ -56,6 +69,11 @@
         "volatility_plugin": {
             "use": true,
             "volatility_threshold": 1.5
+        },
+        "hft_plugin": {
+            "use": true,
+            "timeframe": "1Min",
+            "max_trades_per_hour": 30
         }
     },
     "MACHINE_LEARNING": {
@@ -73,6 +91,11 @@
             "sentiment_model": {
                 "path": "models/sentiment_model.pkl",
                 "enabled": true
+            },
+            "hft_model": {
+                "path": "models/hft_model.pkl",
+                "enabled": true,
+                "timeframe": "1Min"
             }
         }
     }
