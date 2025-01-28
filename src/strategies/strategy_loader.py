@@ -8,54 +8,51 @@ class StrategyLoader:
     """
 
     def __init__(self, strategies_dir="src/strategies", config_dir="config/strategies"):
-        """
-        Initialize the StrategyLoader.
-        :param strategies_dir: Directory containing strategy implementations.
-        :param config_dir: Directory containing strategy configurations.
-        """
         self.strategies_dir = strategies_dir
         self.config_dir = config_dir
         self.strategies = {}
 
     def load_strategies(self):
-        """
-        Load all strategies dynamically from the strategies directory.
-        """
+        """Load strategies dynamically using CamelCase class naming convention."""
         for file in os.listdir(self.strategies_dir):
-            if file.endswith(".py") and file != "strategy_loader.py" and file != "__init__.py":
-                strategy_name = file.replace(".py", "")
+            if file.endswith(".py") and file not in ["__init__.py", "strategy_loader.py"]:
+                strategy_name = file[:-3]  # Remove '.py'
+                module_path = f"src.strategies.{strategy_name}"
+                
                 try:
-                    module = importlib.import_module(f"src.strategies.{strategy_name}")
-                    config_path = os.path.join(self.config_dir, f"{strategy_name.upper()}.toml")
-                    if os.path.exists(config_path):
-                        config = toml.load(config_path)
-                        self.strategies[strategy_name] = module.Strategy(config)
-                    else:
-                        print(f"Warning: No configuration found for {strategy_name}. Skipping.")
+                    # Import strategy module
+                    module = importlib.import_module(module_path)
+                    
+                    # Generate CamelCase class name (e.g., 'hft' -> 'HFTStrategy')
+                    class_name = (
+                        strategy_name.upper() + "Strategy"  # For acronyms like HFT
+                        if "_" not in strategy_name
+                        else "".join([part.capitalize() for part in strategy_name.split("_")]) + "Strategy"
+                    )
+                    
+                    # Get strategy class
+                    strategy_class = getattr(module, class_name)
+                    
+                    # Load configuration
+                    config_path = os.path.join(self.config_dir, f"{strategy_name}.toml")
+                    config = toml.load(config_path) if os.path.exists(config_path) else {}
+                    
+                    # Instantiate and store
+                    self.strategies[strategy_name] = strategy_class(config, None, None)  # Adjust args as needed
+                    
+                except AttributeError:
+                    print(f"Class {class_name} not found in {file}")
                 except Exception as e:
-                    print(f"Error loading strategy {strategy_name}: {e}")
+                    print(f"Error loading {strategy_name}: {str(e)}")
 
     def get_strategy(self, name):
-        """
-        Retrieve a loaded strategy by name.
-        :param name: Name of the strategy.
-        :return: Strategy instance or None.
-        """
         return self.strategies.get(name)
 
     def list_strategies(self):
-        """
-        List all loaded strategies.
-        :return: List of strategy names.
-        """
         return list(self.strategies.keys())
 
 
 if __name__ == "__main__":
     loader = StrategyLoader()
     loader.load_strategies()
-
     print("Loaded strategies:", loader.list_strategies())
-    for strategy_name in loader.list_strategies():
-        strategy = loader.get_strategy(strategy_name)
-        print(f"Loaded strategy: {strategy_name}, Config: {strategy}")
