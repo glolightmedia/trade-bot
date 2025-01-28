@@ -1,0 +1,4 @@
+# config/strategies/hft.toml
+timeframe = "1m"
+max_trades_per_min = 30
+risk_per_trade = 0.01
