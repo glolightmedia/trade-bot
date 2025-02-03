@@ -1,6 +1,7 @@
 import logging
 import json
-from datetime import datetime, time as dt_time
+import numpy as np
+from datetime import datetime, time as dt_time, timedelta
 from alpaca_trade_api import REST
 import pandas as pd
 import pytz
@@ -9,6 +10,8 @@ from src.machine_learning.random_forest import RandomForestModel
 from src.machine_learning.lstm_model import LSTMModel
 from src.machine_learning.sentiment_model import SentimentModel
 from src.plugins.sentiment_plugin import SentimentPlugin
+from src.plugins.hft_plugin import HFTPlugin
+from src.portfolio_manager import Portfolio
 from src.config.logging_config import setup_logging
 
 # Load configuration
@@ -27,129 +30,163 @@ MARKET_HOURS = config["MARKET_HOURS"]
 # Initialize Alpaca API
 api = REST(API_KEY, SECRET_KEY, BASE_URL, api_version="v2")
 
-# Initialize Strategy Loader and Plugins
+# Initialize Core Components
+portfolio = Portfolio(config, api)
 strategy_loader = StrategyLoader(config_dir="config/strategies/")
-strategy_loader.load_strategies()
-strategies = strategy_loader.strategies
+hft_plugin = HFTPlugin(config, api)
 sentiment_plugin = SentimentPlugin()
 
-# Load ML Models
-random_forest = RandomForestModel()
-lstm_model = LSTMModel(sequence_length=30)
-sentiment_model = SentimentModel()
-
-random_forest.load_model("models/pre_trained/random_forest.pkl")
-lstm_model.load_model("models/pre_trained/lstm_model.h5")
-sentiment_model.load_model("models/pre_trained/vectorizer.pkl", "models/pre_trained/sentiment_model.pkl")
-
+# Load Strategies and ML Models
+try:
+    strategy_loader.load_strategies()
+    strategies = strategy_loader.strategies
+    ensemble_strategy = strategies["ensemble"]
+    
+    # Initialize ML Models
+    random_forest = RandomForestModel()
+    lstm_model = LSTMModel(sequence_length=30)
+    sentiment_model = SentimentModel()
+    
+    random_forest.load_model(config["MACHINE_LEARNING"]["models"]["random_forest"]["path"])
+    lstm_model.load_model(config["MACHINE_LEARNING"]["models"]["lstm_model"]["path"])
+    sentiment_model.load_model("models/pre_trained/vectorizer.pkl", 
+                             config["MACHINE_LEARNING"]["models"]["sentiment_model"]["path"])
+    
+except Exception as e:
+    logging.error(f"Initialization failed: {e}")
+    raise
 
 def is_market_open():
-    """Check if the market is open."""
-    now = datetime.now(pytz.timezone("US/Eastern")).time()
-    market_open_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
-    market_close_time = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
-    return market_open_time <= now < market_close_time
+    """Check if the market is open using configurable hours."""
+    tz = pytz.timezone("US/Eastern")
+    now = datetime.now(tz).time()
+    market_open = dt_time.fromisoformat(MARKET_HOURS["MARKET_OPEN"])
+    market_close = dt_time.fromisoformat(MARKET_HOURS["MARKET_CLOSE"])
+    return market_open <= now <= market_close
 
-
-def get_penny_stocks(api):
-    """Retrieve penny stocks based on volume, price, and volatility."""
+def get_penny_stocks():
+    """Retrieve volatile penny stocks with liquidity screening."""
     try:
         assets = api.list_assets(status="active")
         return [
             asset.symbol for asset in assets
-            if asset.tradable and asset.exchange in ["NYSE", "NASDAQ"]
-            and 0.5 <= asset.last_price <= 5
-            and asset.volume >= 1_000_000
-            and abs(asset.change_percent) > 3
+            if all([
+                asset.tradable,
+                asset.exchange in ["NYSE", "NASDAQ"],
+                0.5 <= asset.last_price <= 5,
+                asset.volume >= 1_000_000,
+                abs(asset.change_percent) > config["TRADE_SETTINGS"]["HFT_SETTINGS"]["volatility_threshold"]
+            ])
         ]
     except Exception as e:
         logging.error(f"Error fetching penny stocks: {e}")
         return []
 
-
-def fetch_sentiment(symbol):
-    """Fetch sentiment for a given stock symbol."""
+def calculate_position_size(symbol, price):
+    """Calculate dynamic position size using portfolio manager."""
     try:
-        return sentiment_plugin.analyze_sentiment(symbol)
+        bars = api.get_bars(symbol, "1Min", limit=14).df
+        if bars.empty:
+            return 0
+            
+        volatility = hft_plugin.calculate_volatility(bars)
+        return portfolio.calculate_position_size(symbol, price, volatility)
     except Exception as e:
-        logging.error(f"Error fetching sentiment for {symbol}: {e}")
+        logging.error(f"Position sizing failed for {symbol}: {e}")
         return 0
 
-
-def compute_confidence_score(data, symbol):
-    """Compute the confidence score using ML models and sentiment analysis."""
+def execute_trade(symbol, signal):
+    """Execute trade with HFT optimization and risk management."""
     try:
-        sentiment = fetch_sentiment(symbol)
-        random_forest_score = random_forest.predict(data)
-        lstm_score = lstm_model.predict(data)
-        final_score = (
-            0.4 * random_forest_score +
-            0.4 * lstm_score +
-            0.2 * sentiment
-        )
-        return final_score
-    except Exception as e:
-        logging.warning(f"Error computing confidence score for {symbol}: {e}")
-        return 0
-
-
-def place_trade(symbol, shares):
-    """Place a trade using the Alpaca API."""
-    try:
-        api.submit_order(
-            symbol=symbol,
-            qty=shares,
-            side="buy",
-            type="market",
-            time_in_force="day"
-        )
-        logging.info(f"Executed trade: {shares} shares of {symbol}")
-    except Exception as e:
-        logging.error(f"Error placing trade for {symbol}: {e}")
-
-
-def run_bot():
-    """Run the trading bot."""
-    if not is_market_open():
-        logging.info("Market is closed. Running after-hours strategy.")
-        run_after_hours_strategy()
-        return
-
-    penny_stocks = get_penny_stocks(api)
-    if not penny_stocks:
-        logging.warning("No penny stocks found.")
-        return
-
-    for symbol in penny_stocks:
-        bars = api.get_bars(symbol, "1Min", limit=30).df
+        bars = api.get_bars(symbol, "1Min", limit=1).df
         if bars.empty:
-            continue
-
-        data = bars[["open", "high", "low", "close", "volume"]]
-        confidence_score = compute_confidence_score(data, symbol)
-        if confidence_score > TRADE_SETTINGS["CONFIDENCE_THRESHOLD"]:
-            price = bars["close"].iloc[-1]
-            allocation = TRADE_SETTINGS["TRADE_ALLOCATION"]
-            shares = int(allocation / price)
-            place_trade(symbol, shares)
-
-
-def run_after_hours_strategy():
-    """Execute trading strategies during after-hours."""
-    penny_stocks = get_penny_stocks(api)
-    for symbol in penny_stocks:
-        bars = api.get_bars(symbol, "1Min", limit=30).df
-        if bars.empty:
-            continue
-
+            return
+            
         price = bars["close"].iloc[-1]
-        vwap = (bars["volume"] * bars["close"]).cumsum() / bars["volume"].cumsum()
-        if price < vwap.iloc[-1]:
-            allocation = TRADE_SETTINGS["AFTER_HOURS_ALLOCATION"]
-            shares = int(allocation / price)
-            place_trade(symbol, shares)
+        shares = calculate_position_size(symbol, price)
+        
+        if shares > 0:
+            hft_plugin.execute_trade(symbol, signal, price, shares)
+            portfolio.update_volatility_metrics(symbol, bars)
+    except Exception as e:
+        logging.error(f"Trade execution failed for {symbol}: {e}")
 
+def aggregate_signals(symbol):
+    """Generate signals using ensemble strategy with real-time data."""
+    try:
+        bars = api.get_bars(symbol, "1Min", limit=30).df
+        if bars.empty:
+            return 0
+            
+        # Get base signals from all strategies
+        strategy_signals = {}
+        for name, strategy in strategies.items():
+            strategy_signals[name] = strategy.generate_signals(bars)
+            
+        # Get ensemble decision
+        ensemble_data = bars.copy()
+        for name, signals in strategy_signals.items():
+            ensemble_data[f"{name}_signal"] = signals["Signal"]
+            
+        ensemble_result = ensemble_strategy.generate_signals(ensemble_data)
+        
+        # Apply ML confidence filter
+        if ensemble_result["Confidence"].iloc[-1] < TRADE_SETTINGS["CONFIDENCE_THRESHOLD"]:
+            return 0
+            
+        return ensemble_result["Ensemble_Signal"].iloc[-1]
+    except Exception as e:
+        logging.error(f"Signal aggregation failed for {symbol}: {e}")
+        return 0
+
+def run_bot_cycle():
+    """Main trading cycle with HFT optimization."""
+    try:
+        hft_plugin.monitor_trades()
+        portfolio.set_balances()
+        
+        if not is_market_open():
+            logging.info("Market closed - Running after-hours maintenance")
+            return
+            
+        symbols = get_penny_stocks()
+        if not symbols:
+            logging.info("No qualifying penny stocks found")
+            return
+            
+        for symbol in symbols[:TRADE_SETTINGS["HFT_SETTINGS"]["max_trades_per_hour"]]:
+            signal = aggregate_signals(symbol)
+            if signal != 0:
+                execute_trade(symbol, signal)
+                
+    except Exception as e:
+        logging.error(f"Main trading cycle failed: {e}")
+
+def run_after_hours():
+    """After-hours maintenance and strategy optimization."""
+    try:
+        if config["MACHINE_LEARNING"]["train_models"]:
+            lstm_model.retrain()
+            random_forest.retrain()
+            
+        portfolio.rebalance_portfolio()
+        strategy_loader.refresh_strategies()
+        
+    except Exception as e:
+        logging.error(f"After-hours maintenance failed: {e}")
 
 if __name__ == "__main__":
-    logging.info("Starting Trading Bot")
-    run_bot()
+    logging.info("Starting Adaptive Trading Bot")
+    try:
+        while True:
+            if is_market_open():
+                run_bot_cycle()
+                time.sleep(TRADE_SETTINGS["REAL_TIME_ADAPTIVE"]["update_interval_seconds"])
+            else:
+                run_after_hours()
+                time.sleep(300)  # Check every 5 minutes after hours
+                
+    except KeyboardInterrupt:
+        logging.info("Bot shutdown requested")
+    except Exception as e:
+        logging.critical(f"Critical failure: {e}")
